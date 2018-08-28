@@ -3,10 +3,15 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import warnings
 
+'''
 import deepiv.samplers as samplers
 import deepiv.densities as densities
-
 from deepiv.custom_gradients import replace_gradients_mse
+'''
+
+import samplers as samplers
+import densities as densities
+from custom_gradients import replace_gradients_mse
 
 from keras.models import Model
 from keras import backend as K
@@ -76,7 +81,12 @@ class Treatment(Model):
             pi, mu, log_sig = densities.split_mixture_of_gaussians(output, self.n_components)
             samples = samplers.random_gmm(pi, mu, K.exp(log_sig))
             draw_sample = K.function(inputs + [K.learning_phase()], [samples])
-            return lambda inputs, use_dropout: draw_sample(inputs + [int(use_dropout)])[0]
+            def sample_Mix_gaussians(inputs, use_dropout = False):
+                '''
+                Helper to draw samples from a Mixtured Gaussian Distribution
+                '''
+                return draw_sample(inputs + [int(use_dropout)])[0]
+            return sample_Mix_gaussians 
 
         else:
             raise NotImplementedError("Unrecognised loss: %s.\
@@ -107,9 +117,13 @@ class Treatment(Model):
                                  supply n_components argument")
             self.n_components = n_components
             self._prepare_sampler(loss)
-            loss = lambda y_true, y_pred: densities.mixture_of_gaussian_loss(y_true,
-                                                                             y_pred,
-                                                                             n_components)
+            def Mix_of_Gaussian_Loss(y_true, y_pred):
+                # y_true is the real_price; or the treatment; price, or t
+                # y_pred is the learned estimators of Mixture of Gaussian
+                # evetually, return a loss function
+                # which is \sum { -log( f( p_t | x_t)) }
+                return densities.mixture_of_gaussian_loss(y_true, y_pred, n_components)
+            loss = Mix_of_Gaussian_Loss # here loss is a function
 
             def predict_mean(x, batch_size=32, verbose=0):
                 '''
@@ -124,8 +138,11 @@ class Treatment(Model):
         else:
             self._prepare_sampler(loss)
 
-        super(Treatment, self).compile(optimizer, loss, metrics=metrics, loss_weights=loss_weights,
-                                       sample_weight_mode=sample_weight_mode, **kwargs)
+        super(Treatment, self).compile(optimizer, loss, 
+                                       metrics=metrics, 
+                                       loss_weights=loss_weights,
+                                       sample_weight_mode=sample_weight_mode, 
+                                       **kwargs)
 
     def sample(self, inputs, n_samples=1, use_dropout=False):
         '''
@@ -138,6 +155,8 @@ class Treatment(Model):
             return self._sampler(inputs, use_dropout)
         else:
             raise Exception("Compile model with loss before sampling")
+
+
 
 class Response(Model):
     '''
@@ -153,36 +172,48 @@ class Response(Model):
     '''
     def __init__(self, treatment, **kwargs):
         if isinstance(treatment, Treatment):
-            self.treatment = treatment
+            self.treatment = treatment # the treatment here is trained well.
         else:
             raise TypeError("Expected a treatment model of type Treatment. \
                              Got a model of type %s. Remember to train your\
                              treatment model first." % type(treatment))
         super(Response, self).__init__(**kwargs)
 
-    def compile(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
+    def compile(self, 
+                optimizer, 
+                loss, 
+                metrics=None, loss_weights=None, sample_weight_mode=None,
                 unbiased_gradient=False,n_samples=1, batch_size=None):
-        super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
+        
+        super(Response, self).compile(optimizer=optimizer, 
+                                      loss=loss, 
+                                      loss_weights=loss_weights,
                                       sample_weight_mode=sample_weight_mode)
+        
         self.unbiased_gradient = unbiased_gradient
-        if unbiased_gradient:
+        if unbiased_gradient: 
+            # make sure that the gradient is unbiased, then we can use the SGD.
+            # This is not necessary.
             if loss in ["MSE", "mse", "mean_squared_error"]:
                 if batch_size is None:
                     raise ValueError("Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
                 replace_gradients_mse(self, optimizer, batch_size=batch_size, n_samples=n_samples)
             else:
-                warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
+                warnings.warn("Unbiased gradient only implemented for mean square error loss. \
+                              It is unnecessary for\
                               logistic losses and currently not implemented for absolute error losses.")
             
 
-    def fit(self, x=None, y=None, batch_size=512, epochs=1, verbose=1, callbacks=None,
+    def fit(self, x=None, y=None, 
+            batch_size=512, epochs=1, verbose=1, callbacks=None,
             validation_data=None, class_weight=None, initial_epoch=0, samples_per_batch=None,
             seed=None, observed_treatments=None):
         '''
         Trains the model by sampling from the fitted treament distribution.
 
         # Arguments
-            x: list of numpy arrays. The first element should *always* be the instrument variables.
+            x: list of numpy arrays. 
+               The first element should *always* be the instrument variables.
             y: (numpy array). Target response variables.
             The remainder of the arguments correspond to the Keras definitions.
         '''
@@ -196,7 +227,8 @@ class Response(Model):
                 samples_per_batch = 1
 
         if observed_treatments is None:
-            generator = SampledSequence(x[1:], x[0], y, batch_size, self.treatment.sample, samples_per_batch)
+            generator = SampledSequence(x[1:], x[0], y, batch_size, 
+                                        self.treatment.sample, samples_per_batch)
         else:
             generator = OnesidedUnbaised(x[1:], x[0], y, observed_treatments, batch_size,
                                          self.treatment.sample, samples_per_batch)

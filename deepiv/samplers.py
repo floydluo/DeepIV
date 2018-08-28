@@ -39,7 +39,7 @@ def random_gmm(pi, mu, sig):
     '''
     Sample from a gaussian mixture model. Returns one sample for each row in
     the pi, mu and sig matrices... this is potentially wasteful (because you have to repeat
-    the matrices n times if you want to get n samples), but makes it easy to implment
+    the matrices n times if you want to get n samples), but makes it easy to implement
     code where the parameters vary as they are conditioned on different datapoints.
     '''
     normals = random_normal(K.shape(mu), mu, sig)

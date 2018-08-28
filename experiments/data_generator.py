@@ -119,9 +119,9 @@ def demand(n, seed=1, ynoise=1., pnoise=1., ypcor=0.8, use_images=False, test=Fa
 
     # z -> price
     v = rng.randn(n)*pnoise
-    price = sensf(time)*(z + 3)  + 25.
-    price = price + v
-    price = (price - pmu)/psd
+    price = sensf(time)*(z + 3)  + 25.  + v
+    
+    price_norm = (price - pmu)/psd
 
     # true observable demand function
     x = np.concatenate([time.reshape((-1, 1)), emotion_feature], axis=1)
@@ -133,7 +133,8 @@ def demand(n, seed=1, ynoise=1., pnoise=1., ypcor=0.8, use_images=False, test=Fa
     e = e.reshape(-1, 1)
     
     # response
-    y = g(x_latent, None, price) + e
+    g_true = g(x_latent, None, price)
+    y = g(x_latent, None, price) + e 
 
     return (x,
             z.reshape((-1, 1)),
